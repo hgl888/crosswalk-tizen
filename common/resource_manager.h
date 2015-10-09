@@ -17,9 +17,9 @@
 #ifndef XWALK_COMMON_RESOURCE_MANAGER_H_
 #define XWALK_COMMON_RESOURCE_MANAGER_H_
 
-#include <string>
 #include <map>
 #include <memory>
+#include <string>
 
 namespace wgt {
 namespace parse {
@@ -74,6 +74,9 @@ class ResourceManager {
   std::unique_ptr<Resource> GetStartResource(const AppControl* app_control);
   bool AllowNavigation(const std::string& url);
   bool AllowedResource(const std::string& url);
+
+  bool IsEncrypted(const std::string& url);
+  std::string DecryptResource(const std::string& path);
 
   void set_base_resource_path(const std::string& base_path);
 

@@ -19,28 +19,28 @@
 #include <app.h>
 #include <Ecore.h>
 #include <ewk_chromium.h>
+
 #include <algorithm>
+#include <map>
 #include <memory>
 #include <sstream>
 #include <vector>
-#include <map>
 
-#include "common/logger.h"
-#include "common/command_line.h"
-#include "common/string_utils.h"
-#include "common/app_control.h"
-#include "common/locale_manager.h"
 #include "common/application_data.h"
-#include "common/resource_manager.h"
 #include "common/app_db.h"
+#include "common/app_control.h"
+#include "common/command_line.h"
+#include "common/locale_manager.h"
+#include "common/logger.h"
 #include "common/profiler.h"
-
+#include "common/resource_manager.h"
+#include "common/string_utils.h"
 #include "runtime/browser/native_window.h"
-#include "runtime/browser/web_view.h"
-#include "runtime/browser/vibration_manager.h"
 #include "runtime/browser/notification_manager.h"
 #include "runtime/browser/popup.h"
 #include "runtime/browser/popup_string.h"
+#include "runtime/browser/vibration_manager.h"
+#include "runtime/browser/web_view.h"
 
 #ifndef INJECTED_BUNDLE_PATH
   #error INJECTED_BUNDLE_PATH is not set.
@@ -171,8 +171,10 @@ static void InitializeNotificationCallback(Ewk_Context* ewk_context,
                                          app);
 }
 
-static Eina_Bool ExitAppIdlerCallback(void* /*data*/) {
-  elm_exit();
+static Eina_Bool ExitAppIdlerCallback(void* data) {
+  WebApplication* app = static_cast<WebApplication*>(data);
+  if (app)
+    app->Terminate();
   return ECORE_CALLBACK_CANCEL;
 }
 
@@ -199,7 +201,8 @@ static bool ProcessWellKnownScheme(const std::string& url) {
     return false;
   }
 
-  std::unique_ptr<common::AppControl> request(common::AppControl::MakeAppcontrolFromURL(url));
+  std::unique_ptr<common::AppControl>
+      request(common::AppControl::MakeAppcontrolFromURL(url));
   if (request.get() == NULL || !request->LaunchRequest()) {
     LOGGER(ERROR) << "Fail to send appcontrol request";
     SLoggerE("Fail to send appcontrol request [%s]", url.c_str());
@@ -397,25 +400,34 @@ void WebApplication::Launch(std::unique_ptr<common::AppControl> appcontrol) {
   window_->Show();
 
   launched_ = true;
-  received_appcontrol_ = std::move(appcontrol);
 }
 
 void WebApplication::AppControl(
     std::unique_ptr<common::AppControl> appcontrol) {
   std::unique_ptr<common::ResourceManager::Resource> res =
     resource_manager_->GetStartResource(appcontrol.get());
-  if (res->should_reset()) {
+
+  bool do_reset = res->should_reset();
+
+  if (!do_reset) {
+    std::string current_page = view_stack_.front()->GetUrl();
+    std::string localized_page =
+        resource_manager_->GetLocalizedPath(res->uri());
+    if (current_page != localized_page) {
+      do_reset = true;
+    } else {
+      SendAppControlEvent();
+    }
+  }
+
+  if (do_reset) {
     // Reset to context
     ClearViewStack();
-    WebView* view = new WebView(window_, ewk_context_);
+    WebView* view = view_stack_.front();
     SetupWebView(view);
     view->SetDefaultEncoding(res->encoding());
     view->LoadUrl(res->uri(), res->mime());
-    view_stack_.push_front(view);
     window_->SetContent(view->evas_object());
-  } else {
-    // Send Event
-    SendAppControlEvent();
   }
 
   if (!debug_mode_ && appcontrol->data(kDebugKey) == "true") {
@@ -423,24 +435,25 @@ void WebApplication::AppControl(
     LaunchInspector(appcontrol.get());
   }
   window_->Active();
-  received_appcontrol_ = std::move(appcontrol);
 }
 
 void WebApplication::SendAppControlEvent() {
-  auto it = view_stack_.begin();
-  while (it != view_stack_.end()) {
-    (*it)->EvalJavascript(kAppControlEventScript);
-  }
+  if (view_stack_.size() > 0 && view_stack_.front() != NULL)
+    view_stack_.front()->EvalJavascript(kAppControlEventScript);
 }
 
 void WebApplication::ClearViewStack() {
   window_->SetContent(NULL);
+  WebView* front = view_stack_.front();
   auto it = view_stack_.begin();
   for ( ; it != view_stack_.end(); ++it) {
-    (*it)->Suspend();
-    delete *it;
+    if (*it != front) {
+      (*it)->Suspend();
+      delete *it;
+    }
   }
   view_stack_.clear();
+  view_stack_.push_front(front);
 }
 
 void WebApplication::Resume() {
@@ -474,6 +487,14 @@ void WebApplication::Suspend() {
   }
 }
 
+void WebApplication::Terminate() {
+  if (terminator_) {
+    terminator_();
+  } else {
+    elm_exit();
+  }
+}
+
 void WebApplication::OnCreatedNewWebView(WebView* /*view*/, WebView* new_view) {
   if (view_stack_.size() > 0 && view_stack_.front() != NULL)
     view_stack_.front()->SetVisibility(false);
@@ -498,9 +519,7 @@ void WebApplication::OnClosedWebView(WebView * view) {
   }
 
   if (view_stack_.size() == 0) {
-    if (terminator_ != NULL) {
-      terminator_();
-    }
+    Terminate();
   } else if (current != view_stack_.front()) {
     view_stack_.front()->SetVisibility(true);
     window_->SetContent(view_stack_.front()->evas_object());
@@ -534,7 +553,7 @@ void WebApplication::OnReceivedWrtMessage(
     window_->InActive();
   } else if (TYPE_IS("tizen://exit")) {
     // One Way Message
-    ecore_idler_add(ExitAppIdlerCallback, NULL);
+    ecore_idler_add(ExitAppIdlerCallback, this);
   } else if (TYPE_IS("tizen://changeUA")) {
     // Async Message
     // Change UserAgent of current WebView

@@ -17,10 +17,10 @@
 #ifndef XWALK_RUNTIME_BROWSER_WEB_APPLICATION_H_
 #define XWALK_RUNTIME_BROWSER_WEB_APPLICATION_H_
 
-#include <string>
+#include <functional>
 #include <list>
 #include <memory>
-#include <functional>
+#include <string>
 
 #include "runtime/browser/web_view.h"
 
@@ -46,6 +46,7 @@ class WebApplication : public WebView::EventListener {
   void Launch(std::unique_ptr<common::AppControl> appcontrol);
   void Resume();
   void Suspend();
+  void Terminate();
 
   std::string data_path() const { return app_data_path_; }
   void set_terminator(std::function<void(void)> terminator)
@@ -118,7 +119,6 @@ class WebApplication : public WebView::EventListener {
   std::unique_ptr<common::LocaleManager> locale_manager_;
   std::unique_ptr<common::ApplicationData> app_data_;
   std::unique_ptr<common::ResourceManager> resource_manager_;
-  std::unique_ptr<common::AppControl> received_appcontrol_;
   std::function<void(void)> terminator_;
   int security_model_version_;
   std::string csp_rule_;

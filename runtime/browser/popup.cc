@@ -18,10 +18,9 @@
 #include "runtime/browser/popup.h"
 
 #include "common/logger.h"
-
-#include "runtime/common/constants.h"
 #include "runtime/browser/native_window.h"
 #include "runtime/browser/popup_string.h"
+#include "runtime/common/constants.h"
 
 namespace runtime {
 
@@ -285,9 +284,13 @@ void Popup::Result(bool is_positive) {
     result_button_ = is_positive;
   }
   if (enable_entry_ && !!entry1_) {
-    result_entry1_ = elm_entry_entry_get(entry1_);
+    const char* text = elm_entry_entry_get(entry1_);
+    if (text)
+      result_entry1_ = text;
     if (!!entry2_) {
-      result_entry2_ = elm_entry_entry_get(entry2_);
+      text = elm_entry_entry_get(entry2_);
+      if (text)
+        result_entry2_ = text;
     }
   }
   if (enable_check_box_) {
@@ -298,7 +301,10 @@ void Popup::Result(bool is_positive) {
 }
 
 Popup::Popup(Evas_Object* popup, Evas_Object* box)
-  : popup_(popup), box_(box) {}
+  : popup_(popup), box_(box), button1_(NULL), button2_(NULL),
+    entry1_(NULL), entry2_(NULL), check_box_(NULL), user_data_(NULL),
+    enable_button_(false), result_button_(false), enable_entry_(false),
+    enable_check_box_(false), result_check_box_(false) {}
 
 Popup::~Popup() {
   if (popup_)
